@@ -1,0 +1,7 @@
+# Copy to config.toml (gitignored) and fill in. Token may instead come from the
+# JIRA_API_TOKEN environment variable (preferred — keeps it out of files & shell history).
+base_url = "https://your-instance.atlassian.net"
+email = "you@example.com"
+# token = "ATATT..."          # optional here; prefer JIRA_API_TOKEN env var
+groups = ["jira-users"]
+out_dir = "/mnt/d/Gresham"
