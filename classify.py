@@ -16,13 +16,6 @@ _ELEVATED = {
     "ADMINISTER_PROJECTS": "Administer Projects",
     "ADMINISTER": "Administer Jira",
 }
-_STANDARD = {
-    "BROWSE_PROJECTS", "ADD_COMMENTS", "CREATE_ATTACHMENTS",
-    "DELETE_OWN_ATTACHMENTS", "DELETE_OWN_COMMENTS", "EDIT_OWN_COMMENTS",
-    "VIEW_READONLY_WORKFLOW", "VIEW_VOTERS_AND_WATCHERS",
-}
-
-
 def classify_bundle(permissions: list[str]) -> str | None:
     perms = set(permissions)
     if "ASSIGNABLE_USER" in perms:

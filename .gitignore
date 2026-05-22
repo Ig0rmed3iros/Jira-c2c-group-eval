@@ -4,4 +4,5 @@ __pycache__/
 .pytest_cache/
 *.pdf
 *.json
+*.log
 !tests/fixtures/*.json
