@@ -37,6 +37,7 @@ def test_collect_dashboards_edit_flag():
     ]})
     shared = collect_dashboards(client, "jira-users", "gid-1")
     assert shared[0].access == "edit"
+    assert shared[0].owner == "John"
 
 
 def test_collect_boards_backing_filter_jql():
