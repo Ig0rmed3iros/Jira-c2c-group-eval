@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from models import AppRoleRow, Member, ProjectRef, SchemeGrant, RoleHit, SchemeMemberHit
+from models import (
+    AppRoleRow, Member, ProjectRef, SchemeGrant, RoleHit, SchemeMemberHit,
+    FilterShare, JqlHit, DashboardShare,
+)
+from jql import find_group_references
 from matchers import holder_matches_group
 from classify import classify_bundle
 
@@ -155,3 +159,61 @@ def granted_role_ids_from_schemes(schemes_payload: dict) -> set[int]:
                 except (TypeError, ValueError):
                     pass
     return ids
+
+
+def _owner_name(obj: dict) -> str:
+    return (obj.get("owner") or {}).get("displayName", "")
+
+
+def _shares_match(perms: list[dict], group_name: str, group_id: str) -> bool:
+    return any(holder_matches_group(p, group_name, group_id) for p in perms or [])
+
+
+def collect_filters(client, group_name: str, group_id: str) -> tuple[list[FilterShare], list[JqlHit]]:
+    shared: list[FilterShare] = []
+    jql_hits: list[JqlHit] = []
+    raw = client.paginate(
+        "/rest/api/3/filter/search",
+        params={"expand": "jql,sharePermissions,editPermissions,owner"},
+    )
+    for f in raw:
+        fid, name, owner = f["id"], f.get("name", ""), _owner_name(f)
+        if _shares_match(f.get("editPermissions"), group_name, group_id):
+            shared.append(FilterShare(fid, name, owner, "edit"))
+        elif _shares_match(f.get("sharePermissions"), group_name, group_id):
+            shared.append(FilterShare(fid, name, owner, "view"))
+        refs = find_group_references(f.get("jql", ""), group_name, group_id)
+        if refs:
+            jql_hits.append(JqlHit(fid, name, owner, "; ".join(refs)))
+    return shared, jql_hits
+
+
+def collect_dashboards(client, group_name: str, group_id: str) -> list[DashboardShare]:
+    shared: list[DashboardShare] = []
+    raw = client.paginate(
+        "/rest/api/3/dashboard/search",
+        params={"expand": "sharePermissions,editPermissions"},
+        values_key="dashboards",
+    )
+    for d in raw:
+        did, name, owner = d["id"], d.get("name", ""), _owner_name(d)
+        if _shares_match(d.get("editPermissions"), group_name, group_id):
+            shared.append(DashboardShare(did, name, owner, "edit"))
+        elif _shares_match(d.get("sharePermissions"), group_name, group_id):
+            shared.append(DashboardShare(did, name, owner, "view"))
+    return shared
+
+
+def collect_boards(client, group_name: str, group_id: str, already_seen_filter_ids: set[str]) -> list[JqlHit]:
+    hits: list[JqlHit] = []
+    for board in client.paginate("/rest/agile/1.0/board"):
+        config = client.get(f"/rest/agile/1.0/board/{board['id']}/configuration")
+        filter_id = str((config.get("filter") or {}).get("id", ""))
+        if not filter_id or filter_id in already_seen_filter_ids:
+            continue
+        already_seen_filter_ids.add(filter_id)
+        f = client.get(f"/rest/api/3/filter/{filter_id}")
+        refs = find_group_references(f.get("jql", ""), group_name, group_id)
+        if refs:
+            hits.append(JqlHit(filter_id, f.get("name", board.get("name", "")), _owner_name(f), "; ".join(refs)))
+    return hits
