@@ -49,3 +49,13 @@ def test_multiple_refs_deduped_in_order():
     jql = 'membersOf("jira-users") OR group = "jira-users"'
     hits = find_group_references(jql, NAME, GID)
     assert hits == ['membersOf("jira-users")', 'group = "jira-users"']
+
+
+def test_group_not_equals():
+    hits = find_group_references('group != "jira-users"', NAME, GID)
+    assert hits == ['group != "jira-users"']
+
+
+def test_group_not_in():
+    hits = find_group_references('group not in ("jira-users")', NAME, GID)
+    assert hits == ['group not in ("jira-users")']
