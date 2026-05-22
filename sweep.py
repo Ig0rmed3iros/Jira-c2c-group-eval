@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from urllib.parse import urlparse
+
 from models import (
     AppRoleRow, Member, ProjectRef, SchemeGrant, RoleHit, SchemeMemberHit,
-    FilterShare, JqlHit, DashboardShare,
+    FilterShare, JqlHit, DashboardShare, CustomFieldHit, ManualCheck, GroupAudit,
 )
 from jql import find_group_references
 from matchers import holder_matches_group
-from classify import classify_bundle
+from classify import classify_bundle, is_non_human, derive_stats, build_summary
 
 
 def resolve_group(client, group_name: str) -> tuple[str, list[Member]]:
@@ -217,3 +220,117 @@ def collect_boards(client, group_name: str, group_id: str, already_seen_filter_i
         if refs:
             hits.append(JqlHit(filter_id, f.get("name", board.get("name", "")), _owner_name(f), "; ".join(refs)))
     return hits
+
+
+_GROUP_PICKER_TYPES = {
+    "com.atlassian.jira.plugin.system.customfieldtypes:grouppicker",
+    "com.atlassian.jira.plugin.system.customfieldtypes:multigrouppicker",
+}
+
+
+def collect_custom_fields(client, group_name: str, group_id: str) -> list[CustomFieldHit]:
+    hits: list[CustomFieldHit] = []
+    name_cf = group_name.casefold()
+    for field in client.get("/rest/api/3/field"):
+        if field.get("schema", {}).get("custom") not in _GROUP_PICKER_TYPES:
+            continue
+        fid, fname = field["id"], field.get("name", "")
+        contexts = {c["id"]: c.get("name", c["id"]) for c in client.paginate(f"/rest/api/3/field/{fid}/context")}
+        for dv in client.paginate(f"/rest/api/3/field/{fid}/context/defaultValue"):
+            gids = {dv.get("groupId")} | {g.get("groupId") for g in dv.get("groups", [])}
+            gnames = {dv.get("groupName", "").casefold()} | {g.get("name", "").casefold() for g in dv.get("groups", [])}
+            if group_id in gids or name_cf in gnames:
+                ctx = contexts.get(dv.get("contextId"), str(dv.get("contextId")))
+                hits.append(CustomFieldHit(fid, fname, ctx, "default value references the group"))
+    return hits
+
+
+def default_manual_checks() -> list[ManualCheck]:
+    return [
+        ManualCheck("Global permissions",
+                    "No public Cloud REST read endpoint (Browse users & groups, Bulk change, Share objects, etc.)",
+                    "Settings > System > Global permissions"),
+        ManualCheck("Automation rules",
+                    "Group conditions/actions are not exposed over public REST",
+                    "Project / Global automation"),
+        ManualCheck("Workflow conditions & validators",
+                    "Group-based transition restrictions are not reliably readable over REST",
+                    "Workflow editor > transition conditions/validators"),
+        ManualCheck("Dashboard gadget JQL",
+                    "Raw JQL inside individual gadgets is not enumerated",
+                    "Open each shared dashboard's gadget configuration"),
+    ]
+
+
+def _host(base_url: str) -> str:
+    return urlparse(base_url).netloc
+
+
+def _guard(audit: GroupAudit, dimension: str, fn) -> None:
+    try:
+        fn()
+    except Exception as exc:  # noqa: BLE001 - intentional per-dimension isolation
+        audit.incomplete_dimensions.append(dimension)
+        audit.manual_checks.append(
+            ManualCheck(dimension, f"REST error during sweep: {exc}", "verify manually in the UI")
+        )
+
+
+def collect(client, group_name: str) -> GroupAudit:
+    me = client.verify_auth()
+    group_id, members = resolve_group(client, group_name)
+    audit = GroupAudit(
+        instance_host=_host(client.base_url),
+        group_name=group_name,
+        group_id=group_id,
+        generated_at=datetime.now(timezone.utc),
+        generated_by=me.get("displayName", ""),
+        members=members,
+    )
+    audit.inactive_in_group = [m for m in members if not m.active]
+    audit.non_human = [m for m in members if is_non_human(m)]
+
+    def _app():
+        audit.app_roles, audit.grants_license = collect_app_access(client, group_name, group_id)
+    _guard(audit, "application access", _app)
+
+    schemes_payload: dict = {"permissionSchemes": []}
+
+    def _schemes():
+        nonlocal schemes_payload
+        schemes_payload = fetch_permission_schemes(client)
+        audit.perm_schemes, audit.projects_by_scheme = collect_permission_schemes(
+            client, group_name, group_id, schemes_payload
+        )
+    _guard(audit, "permission schemes", _schemes)
+
+    def _roles():
+        granted = granted_role_ids_from_schemes(schemes_payload)
+        audit.role_hits = collect_project_roles(client, group_name, group_id, granted)
+    _guard(audit, "project roles", _roles)
+
+    _guard(audit, "notification schemes",
+           lambda: audit.notification_hits.extend(collect_notification_schemes(client, group_name, group_id)))
+    _guard(audit, "issue security schemes",
+           lambda: audit.security_hits.extend(collect_security_schemes(client, group_name, group_id)))
+
+    seen_filter_ids: set[str] = set()
+
+    def _filters():
+        shared, jql_hits = collect_filters(client, group_name, group_id)
+        audit.filters_shared.extend(shared)
+        audit.filters_jql.extend(jql_hits)
+        seen_filter_ids.update(j.filter_id for j in jql_hits)
+    _guard(audit, "filters", _filters)
+
+    _guard(audit, "dashboards",
+           lambda: audit.dashboards_shared.extend(collect_dashboards(client, group_name, group_id)))
+    _guard(audit, "boards",
+           lambda: audit.filters_jql.extend(collect_boards(client, group_name, group_id, seen_filter_ids)))
+    _guard(audit, "custom fields",
+           lambda: audit.custom_field_hits.extend(collect_custom_fields(client, group_name, group_id)))
+
+    audit.manual_checks.extend(default_manual_checks())
+    audit.stats = derive_stats(audit)
+    audit.summary = build_summary(audit)
+    return audit
