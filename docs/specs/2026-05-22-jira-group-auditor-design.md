@@ -1,9 +1,9 @@
 # Jira Group Auditor — Design Spec
 
 - **Date:** 2026-05-22
-- **Status:** Approved (brainstorm) — pending implementation plan
+- **Status:** Implemented & published 2026-05-22
 - **Author:** Igor Medeiros (with Claude)
-- **Location:** `jira-group-auditor/` (local only, no remote repo)
+- **Location:** published (public) at https://github.com/Ig0rmed3iros/Jira-c2c-group-eval
 
 ## 1. Goal
 
@@ -26,8 +26,8 @@ as a clearly-labeled "manual check required" section.
 - **No write operations.** Strictly read-only. The tool never mutates the tenant.
 - **No browser automation.** Dimensions without a public REST read endpoint are reported as
   manual-check items, not scraped from the admin UI.
-- **No remote repository / CI.** Local folder only. (A local git repo is optional and not
-  required by this spec.)
+- **No CI.** No continuous-integration pipeline. (Originally scoped as a local-only project; it
+  was later published to a public GitHub repo — see Location above.)
 
 ## 3. Configuration & invocation
 

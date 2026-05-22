@@ -13,7 +13,7 @@
 **Conventions for every task:**
 - All paths relative to `jira-group-auditor/`.
 - Run tests from the project root with `python -m pytest`.
-- Commits are **local only** (`git init` in Task 1; no remote, never `git push`).
+- Commits were made locally during the build (`git init` in Task 1); the finished tool was later published to a public GitHub repo (https://github.com/Ig0rmed3iros/Jira-c2c-group-eval).
 
 ---
 
