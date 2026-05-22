@@ -662,7 +662,7 @@ import re
 from models import GroupAudit, Member, ExecutiveSummary
 
 _NON_HUMAN_RE = re.compile(
-    r"\b(api|bot|svc|service|splunk|airflow|pentester|guest|administrator|"
+    r"(api|bot|svc|service|splunk|airflow|pentester|guest|administrator|"
     r"automation|jenkins|integration|test)\b",
     re.IGNORECASE,
 )
