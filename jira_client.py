@@ -10,13 +10,15 @@ class JiraClient:
         self.base_url = base_url.rstrip("/")
         self.session = session or requests.Session()
         self.session.auth = (email, token)
-        self.session.headers.update({"Accept": "application/json"})
+        # Disable Brotli: urllib3 2.x + brotli stream-decode chokes on large Jira
+        # payloads (e.g. /permissionscheme), failing the whole response.
+        self.session.headers.update({"Accept": "application/json", "Accept-Encoding": "gzip, deflate"})
         self.max_retries = max_retries
 
     def _url(self, path: str) -> str:
         return path if path.startswith("http") else f"{self.base_url}{path}"
 
-    def get(self, path: str, params: dict | None = None) -> dict:
+    def get(self, path: str, params: dict | None = None) -> dict | list:
         last = None
         for attempt in range(self.max_retries):
             resp = self.session.get(self._url(path), params=params)
@@ -35,8 +37,7 @@ class JiraClient:
 
     def paginate(self, path: str, params: dict | None = None, values_key: str = "values") -> list:
         params = dict(params or {})
-        page = 100
-        params["maxResults"] = page
+        params.setdefault("maxResults", 100)
         start = 0
         out: list = []
         while True:
@@ -44,9 +45,14 @@ class JiraClient:
             data = self.get(path, params)
             vals = data.get(values_key, [])
             out.extend(vals)
-            if data.get("isLast") is True:
+            if not vals or data.get("isLast") is True:
                 break
-            if len(vals) < page:
+            total = data.get("total")
+            if total is not None:
+                if start + len(vals) >= total:
+                    break
+            elif len(vals) < (data.get("maxResults") or len(vals)):
+                # no total/isLast: a page shorter than the server's own page size means we're done
                 break
-            start += page
+            start += len(vals)  # advance by what the server actually returned, not what we asked for
         return out

@@ -196,7 +196,6 @@ def collect_dashboards(client, group_name: str, group_id: str) -> list[Dashboard
     raw = client.paginate(
         "/rest/api/3/dashboard/search",
         params={"expand": "sharePermissions,editPermissions"},
-        values_key="dashboards",
     )
     for d in raw:
         did, name, owner = d["id"], d.get("name", ""), _owner_name(d)

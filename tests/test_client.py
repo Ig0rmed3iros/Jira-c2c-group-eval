@@ -24,7 +24,8 @@ class FakeSession:
         self.headers = {}
 
     def get(self, url, params=None):
-        self.calls.append((url, params))
+        # snapshot params — paginate mutates one dict in place across pages
+        self.calls.append((url, dict(params) if params else params))
         return self._responses.pop(0)
 
 
@@ -58,3 +59,18 @@ def test_paginate_custom_values_key():
     c = _client(FakeSession([page]))
     out = c.paginate("/rest/api/3/dashboard/search", values_key="dashboards")
     assert out == [{"id": "d1"}]
+
+
+def test_paginate_respects_server_maxresults_cap():
+    # server caps page at 50 despite the request, omits isLast, uses total to terminate.
+    # paginate must advance startAt by the RETURNED count (50), not the requested page (100).
+    p1 = FakeResp(200, {"values": [{"i": i} for i in range(50)], "total": 120, "maxResults": 50})
+    p2 = FakeResp(200, {"values": [{"i": i} for i in range(50)], "total": 120, "maxResults": 50})
+    p3 = FakeResp(200, {"values": [{"i": i} for i in range(20)], "total": 120, "maxResults": 50})
+    session = FakeSession([p1, p2, p3])
+    c = _client(session)
+    out = c.paginate("/rest/api/3/group/member")
+    assert len(out) == 120
+    assert session.calls[0][1]["startAt"] == 0
+    assert session.calls[1][1]["startAt"] == 50
+    assert session.calls[2][1]["startAt"] == 100
