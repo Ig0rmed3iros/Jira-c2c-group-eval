@@ -92,3 +92,6 @@ presented as complete.
 ```bash
 python3 -m pytest -q
 ```
+
+## License
+MIT — see [LICENSE](LICENSE).
