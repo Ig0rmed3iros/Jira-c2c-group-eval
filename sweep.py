@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from models import AppRoleRow, Member
+from models import AppRoleRow, Member, ProjectRef, SchemeGrant
+from matchers import holder_matches_group
+from classify import classify_bundle
 
 
 def resolve_group(client, group_name: str) -> tuple[str, list[Member]]:
@@ -54,3 +56,43 @@ def collect_app_access(client, group_name: str, group_id: str) -> tuple[list[App
             is_default=is_default,
         ))
     return rows, grants
+
+
+def fetch_permission_schemes(client) -> dict:
+    """Single fetch shared by permission-scheme and project-role collectors."""
+    return client.get("/rest/api/3/permissionscheme", params={"expand": "permissions,group"})
+
+
+def collect_permission_schemes(
+    client, group_name: str, group_id: str, schemes_payload: dict
+) -> tuple[list[SchemeGrant], dict[int, list[ProjectRef]]]:
+    matched: dict[int, dict] = {}
+    for scheme in schemes_payload.get("permissionSchemes", []):
+        perms = sorted({
+            p["permission"]
+            for p in scheme.get("permissions", [])
+            if holder_matches_group(p.get("holder", {}), group_name, group_id)
+        })
+        if perms:
+            matched[scheme["id"]] = {"name": scheme.get("name", ""), "permissions": perms}
+
+    projects_by_scheme: dict[int, list[ProjectRef]] = {sid: [] for sid in matched}
+    for proj in client.paginate("/rest/api/3/project/search"):
+        key = proj["key"]
+        assoc = client.get(f"/rest/api/3/project/{key}/permissionscheme")
+        sid = assoc.get("id")
+        if sid in projects_by_scheme:
+            projects_by_scheme[sid].append(ProjectRef(key=key, name=proj.get("name", "")))
+
+    grants = [
+        SchemeGrant(
+            scheme_id=sid,
+            scheme_name=info["name"],
+            permissions=info["permissions"],
+            bundle_tag=classify_bundle(info["permissions"]),
+            project_count=len(projects_by_scheme[sid]),
+        )
+        for sid, info in matched.items()
+    ]
+    grants.sort(key=lambda g: g.scheme_id)
+    return grants, projects_by_scheme
