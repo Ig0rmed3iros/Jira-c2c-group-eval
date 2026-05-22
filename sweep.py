@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from models import AppRoleRow, Member, ProjectRef, SchemeGrant
+from models import AppRoleRow, Member, ProjectRef, SchemeGrant, RoleHit, SchemeMemberHit
 from matchers import holder_matches_group
 from classify import classify_bundle
 
@@ -96,3 +96,62 @@ def collect_permission_schemes(
     ]
     grants.sort(key=lambda g: g.scheme_id)
     return grants, projects_by_scheme
+
+
+def collect_notification_schemes(client, group_name: str, group_id: str) -> list[SchemeMemberHit]:
+    hits: list[SchemeMemberHit] = []
+    for scheme in client.paginate("/rest/api/3/notificationscheme", params={"expand": "all"}):
+        events = []
+        for ev in scheme.get("notificationSchemeEvents", []):
+            for n in ev.get("notifications", []):
+                if holder_matches_group(n, group_name, group_id):
+                    events.append(ev.get("event", {}).get("name", "event"))
+        if events:
+            hits.append(SchemeMemberHit(scheme["id"], scheme.get("name", ""), ", ".join(sorted(set(events)))))
+    return hits
+
+
+def collect_security_schemes(client, group_name: str, group_id: str) -> list[SchemeMemberHit]:
+    schemes = client.get("/rest/api/3/issuesecurityschemes").get("issueSecuritySchemes", [])
+    hits: list[SchemeMemberHit] = []
+    for scheme in schemes:
+        members = client.paginate(
+            "/rest/api/3/issuesecurityschemes/level/member",
+            params={"schemeId": scheme["id"]},
+        )
+        if any(holder_matches_group(m.get("holder", {}), group_name, group_id) for m in members):
+            hits.append(SchemeMemberHit(scheme["id"], scheme.get("name", ""), "member of a security level"))
+    return hits
+
+
+def collect_project_roles(client, group_name: str, group_id: str, granted_role_ids: set[int]) -> list[RoleHit]:
+    hits: list[RoleHit] = []
+    name_cf = group_name.casefold()
+    for role in client.get("/rest/api/3/role"):
+        is_default_actor = False
+        for actor in role.get("actors", []):
+            ag = actor.get("actorGroup") or {}
+            if ag.get("groupId") == group_id or (actor.get("name", "").casefold() == name_cf):
+                is_default_actor = True
+                break
+        if is_default_actor:
+            hits.append(RoleHit(
+                role_id=role["id"],
+                role_name=role.get("name", ""),
+                is_default_actor=True,
+                granted_by_any_scheme=role["id"] in granted_role_ids,
+            ))
+    return hits
+
+
+def granted_role_ids_from_schemes(schemes_payload: dict) -> set[int]:
+    ids: set[int] = set()
+    for scheme in schemes_payload.get("permissionSchemes", []):
+        for p in scheme.get("permissions", []):
+            holder = p.get("holder", {})
+            if holder.get("type") == "projectRole":
+                try:
+                    ids.add(int(holder.get("parameter") or holder.get("value")))
+                except (TypeError, ValueError):
+                    pass
+    return ids
