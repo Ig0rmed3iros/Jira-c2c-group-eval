@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from weasyprint import HTML
@@ -12,7 +13,8 @@ from report_assets import CSS, html_escape, stat_card, section_table, badge
 def output_basename(audit: GroupAudit) -> str:
     host = audit.instance_host.split(".")[0]
     date = audit.generated_at.strftime("%Y-%m-%d")
-    return f"{host}-{audit.group_name}-discovery-{date}"
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", audit.group_name)
+    return f"{host}-{slug}-discovery-{date}"
 
 
 def _header(audit: GroupAudit) -> str:
@@ -62,12 +64,15 @@ def _summary(audit: GroupAudit) -> str:
 
 
 def _app_access(audit: GroupAudit) -> str:
-    rows = [[
-        html_escape(r.name), html_escape(r.key),
-        f"{r.seats_used} / {r.seats_total}",
-        badge("yes" if r.is_member else "no", "no" if not r.is_member else "view"),
-        badge("yes" if r.is_default else "no", "no" if not r.is_default else "view"),
-    ] for r in audit.app_roles]
+    rows = []
+    for r in audit.app_roles:
+        seats = (f"{r.seats_used} / {r.seats_total}"
+                 if r.seats_used is not None and r.seats_total is not None else "—")
+        rows.append([
+            html_escape(r.name), html_escape(r.key), seats,
+            badge("yes" if r.is_member else "no", "no" if not r.is_member else "view"),
+            badge("yes" if r.is_default else "no", "no" if not r.is_default else "view"),
+        ])
     table = section_table(["Application role", "Key", "Seats used / total", "Member?", "Default?"], rows)
     verdict = "no" if not audit.grants_license else "YES"
     return f"<h2>1. Application access (license seats)</h2>{table}<p>Result: grants license = <b>{verdict}</b>.</p>"
