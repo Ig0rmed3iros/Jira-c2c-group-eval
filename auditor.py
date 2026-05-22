@@ -29,7 +29,7 @@ def load_settings(args) -> dict:
         "email": args.email or config.get("email"),
         "config_token": config.get("token"),
         "groups": groups,
-        "out_dir": args.out_dir or config.get("out_dir") or "/mnt/d/Gresham",
+        "out_dir": args.out_dir or config.get("out_dir") or "./reports",
     }
 
 

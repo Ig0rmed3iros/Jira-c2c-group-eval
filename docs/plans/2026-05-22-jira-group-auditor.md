@@ -4,14 +4,14 @@
 
 **Goal:** Build a configurable, read-only Python tool that sweeps a Jira Cloud site for every place a given group is referenced (permissions, license roles, filters incl. JQL, dashboards, boards, notification/security schemes, project roles, group-picker custom fields) and emits, per group, a high-quality PDF report plus a JSON sidecar.
 
-**Architecture:** Small focused modules in `/mnt/d/Gresham/jira-group-auditor/`. `jira_client.py` does authenticated paginated REST; `models.py` holds the typed `GroupAudit`; `jql.py`/`matchers.py`/`classify.py` are pure, unit-tested helpers (the risk areas); `sweep.py` runs the collectors and assembles a `GroupAudit` with per-dimension error isolation; `report.py`+`report_assets.py` render HTML→PDF (WeasyPrint) + JSON; `auditor.py` is the CLI. Dimensions with no public Cloud REST read endpoint become a "manual check" section.
+**Architecture:** Small focused modules in `jira-group-auditor/`. `jira_client.py` does authenticated paginated REST; `models.py` holds the typed `GroupAudit`; `jql.py`/`matchers.py`/`classify.py` are pure, unit-tested helpers (the risk areas); `sweep.py` runs the collectors and assembles a `GroupAudit` with per-dimension error isolation; `report.py`+`report_assets.py` render HTML→PDF (WeasyPrint) + JSON; `auditor.py` is the CLI. Dimensions with no public Cloud REST read endpoint become a "manual check" section.
 
 **Tech Stack:** Python 3.12, `requests` 2.31, `weasyprint` 68.1, `pytest`. HTTP Basic auth (`email:token`). No Jinja2 (string templating). Local git only — never push.
 
 **Spec:** `docs/specs/2026-05-22-jira-group-auditor-design.md`
 
 **Conventions for every task:**
-- All paths relative to `/mnt/d/Gresham/jira-group-auditor/`.
+- All paths relative to `jira-group-auditor/`.
 - Run tests from the project root with `python -m pytest`.
 - Commits are **local only** (`git init` in Task 1; no remote, never `git push`).
 
@@ -44,7 +44,7 @@ base_url = "https://your-instance.atlassian.net"
 email = "you@example.com"
 # token = "ATATT..."          # optional here; prefer JIRA_API_TOKEN env var
 groups = ["jira-users"]
-out_dir = "/mnt/d/Gresham"
+out_dir = "./reports"
 ```
 
 `.gitignore`:
@@ -77,13 +77,13 @@ def test_python_runs():
 
 - [ ] **Step 3: Run the smoke test**
 
-Run: `cd /mnt/d/Gresham/jira-group-auditor && python -m pytest -q`
+Run: `cd jira-group-auditor && python -m pytest -q`
 Expected: `1 passed`.
 
 - [ ] **Step 4: Init local git + commit**
 
 ```bash
-cd /mnt/d/Gresham/jira-group-auditor
+cd jira-group-auditor
 git init
 git add requirements.txt config.example.toml .gitignore pytest.ini tests/__init__.py tests/test_smoke.py docs/
 git commit -m "chore: scaffold jira-group-auditor project"
@@ -2196,7 +2196,7 @@ def load_settings(args) -> dict:
         "email": args.email or config.get("email"),
         "config_token": config.get("token"),
         "groups": groups,
-        "out_dir": args.out_dir or config.get("out_dir") or "/mnt/d/Gresham",
+        "out_dir": args.out_dir or config.get("out_dir") or "./reports",
     }
 
 
@@ -2291,7 +2291,7 @@ export JIRA_API_TOKEN=ATATT...          # preferred (keeps the token out of file
 python auditor.py --config config.toml
 # or all by flags:
 python auditor.py --base-url https://acme.atlassian.net --email you@acme.com \
-                  --group jira-users --group jira-users-cloud --out-dir /mnt/d/Gresham
+                  --group jira-users --group jira-users-cloud --out-dir ./reports
 ```
 
 Auth is HTTP Basic (`email` + API token). **Bearer tokens return 403 on Cloud** — use a token
@@ -2317,31 +2317,32 @@ git commit -m "docs: README with usage, coverage, and the Basic-not-Bearer note"
 
 ## Task 16: Live acceptance run (oracle)
 
-This task needs **live Alveo credentials** and confirms the tool reproduces the known ground
-truth from `alveo-jira-users-discovery-2026-05-21.pdf`.
+This task needs **live credentials for a real tenant** and confirms the tool reproduces the
+known ground truth from a prior manual group-discovery report.
 
 - [ ] **Step 1: Run against the real tenant**
 
 ```bash
-cd /mnt/d/Gresham/jira-group-auditor
-export JIRA_API_TOKEN='<Alveo PAT from memory alveo_credentials.md>'
-python auditor.py --base-url https://alveo-support.atlassian.net \
-                  --email imedeiros@alveotech.com \
-                  --group jira-users --out-dir /mnt/d/Gresham
+cd jira-group-auditor
+export JIRA_API_TOKEN='<your API token>'
+python auditor.py --base-url https://acme.atlassian.net \
+                  --email you@example.com \
+                  --group example-group --out-dir ./reports
 ```
 
 - [ ] **Step 2: Verify against the oracle**
 
-Open `/mnt/d/Gresham/alveo-support-jira-users-discovery-<today>.json` and confirm:
+Open `./reports/<instance>-<group>-discovery-<today>.json` and confirm each stat matches your
+known ground truth:
 ```
-stats.members            == 195
-stats.active             == 190
-stats.inactive           == 5
-stats.permission_schemes == 8
-stats.projects_affected  == 158
-stats.filters_shared     == 48
-stats.dashboards_shared  == 13
-stats.license_seats      == 0
+stats.members            == <expected member count>
+stats.active             == <expected active count>
+stats.inactive           == <expected inactive count>
+stats.permission_schemes == <expected scheme count>
+stats.projects_affected  == <expected project count>
+stats.filters_shared     == <expected filter count>
+stats.dashboards_shared  == <expected dashboard count>
+stats.license_seats      == <expected seat count>
 ```
 Expected: all match. If any differs, investigate the relevant collector before declaring done
 (do **not** adjust the oracle to match the code).

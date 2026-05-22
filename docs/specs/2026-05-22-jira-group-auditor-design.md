@@ -3,14 +3,14 @@
 - **Date:** 2026-05-22
 - **Status:** Approved (brainstorm) — pending implementation plan
 - **Author:** Igor Medeiros (with Claude)
-- **Location:** `/mnt/d/Gresham/jira-group-auditor/` (local only, no remote repo)
+- **Location:** `jira-group-auditor/` (local only, no remote repo)
 
 ## 1. Goal
 
-Generalize the one-off `alveo-jira-users-discovery` audit into a reusable, configurable
+Generalize the one-off `example-group-discovery` audit into a reusable, configurable
 Python tool. The user supplies a base URL, credentials, and one or more group names; the tool
 sweeps the entire Jira Cloud site for every place that group is referenced and emits, **per
-group**, a high-quality PDF report (matching the existing `alveo-jira-users-discovery-2026-05-21.pdf`
+group**, a high-quality PDF report (matching the existing `example-group-discovery-2026-05-21.pdf`
 visual) plus a machine-readable JSON sidecar.
 
 The defining requirement: **sweep everything the REST API exposes** — permissions, license
@@ -35,21 +35,21 @@ Two interchangeable ways to configure:
 
 ```
 python auditor.py --config config.toml
-python auditor.py --base-url https://alveo-support.atlassian.net \
-                  --email imedeiros@alveotech.com \
+python auditor.py --base-url https://acme.atlassian.net \
+                  --email you@example.com \
                   --group jira-users --group jira-users-cloud
 ```
 
 - **Token resolution order:** `JIRA_API_TOKEN` env var → `--token` flag → `config.toml`.
   Env var is preferred so the secret stays out of shell history and config files.
-- `--out-dir` defaults to `/mnt/d/Gresham`.
+- `--out-dir` defaults to `./reports`.
 - `config.example.toml` ships as a template; real `config.toml` is gitignored.
 - Multiple `--group` flags (or a `[groups]` list in TOML) are allowed; each group is audited
   independently and produces its own output pair.
 
 ### Output naming
 Per group: `<instance-host>-<group-slug>-discovery-<YYYY-MM-DD>.pdf` and `.json`
-(e.g. `alveo-support-jira-users-discovery-2026-05-22.pdf`).
+(e.g. `acme-example-group-discovery-2026-05-22.pdf`).
 
 ## 4. Architecture
 
@@ -57,7 +57,7 @@ Small module set in one folder. Boundaries chosen so the two highest-risk units 
 parser and the group matchers) are independently unit-testable.
 
 ```
-/mnt/d/Gresham/jira-group-auditor/
+jira-group-auditor/
   auditor.py            # CLI entry: config/flags, auth verify, per-group orchestration loop
   jira_client.py        # Basic-auth session, paginated GET, 429 backoff, typed fetchers
   sweep.py              # 11 collectors + group-ref matching + JQL parser -> GroupAudit
@@ -235,10 +235,11 @@ in scope now: a `--notes` flag to inject hand-written summary lines.)
   - Classifier: permission-set → bundle_tag; bot/inactive heuristics; stat + summary derivation.
 - **Render smoke:** `report.render(sample_audit)` emits HTML containing all expected sections
   and writes a valid (non-empty, openable) PDF.
-- **Live acceptance (oracle):** run against Alveo `jira-users` and assert it reproduces the
-  known ground truth from the prior report:
-  **195 / 190 / 5 members, 8 permission schemes, 158 projects, 48 filters, 13 dashboards,
-  0 license seats.** This is the strongest correctness gate available.
+- **Live acceptance (oracle):** run against a group whose footprint you already know from a
+  prior manual audit, and assert the tool reproduces that ground truth — member counts
+  (total/active/inactive), permission-scheme and affected-project counts, filter/dashboard
+  share counts, and the license-seat verdict. Comparing against a known-good prior result is
+  the strongest correctness gate available.
 
 ## 10. Decisions log
 

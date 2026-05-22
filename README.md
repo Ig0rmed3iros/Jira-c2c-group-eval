@@ -24,7 +24,7 @@ export JIRA_API_TOKEN=ATATT...          # preferred (keeps the token out of file
 python3 auditor.py --config config.toml
 # or all by flags:
 python3 auditor.py --base-url https://acme.atlassian.net --email you@acme.com \
-                   --group jira-users --group jira-users-cloud --out-dir /mnt/d/Gresham
+                   --group jira-users --group jira-users-cloud --out-dir ./reports
 ```
 
 Auth is HTTP Basic (`email` + API token). **Bearer tokens return 403 on Cloud** — use a token
